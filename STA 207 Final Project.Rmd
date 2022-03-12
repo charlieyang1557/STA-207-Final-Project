@@ -1,0 +1,435 @@
+---
+title: "STA 207 Final Project"
+author: "Yutian Yang"
+date: "2/27/2022"
+output: html_document
+---
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.pos = 'H')
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+# Abstract 
+
+<span style='color:black'> 
+
+The COVID-19 project is targeting on studying the effect of region and vaccination policy on the death rate of COVID-19. In this data analysis project, the data sets are from the WHO website and Our World in Data website. After organizing the data, it contains 6649 observation and 9 variables. We then conduct the descriptive analysis on the data to gain some general and basic understanding of the data set. After the descriptive analysis, we then conduct the inferential analysis to study our question of interests. Then, in the discussion part, we conclude the result of our analysis and seek possible improvement in our future study. </span>
+
+
+# Introduction
+
+<span style='color:black'> 
+
+The WHO dataset contains confirmed COVID-19 cases (new and cumulative) and deaths (new and cumulative) information from Jan 3rd 2020 to Feb 17th, 2022 across 236 contries globally. The Our World in Data dataset contains the vaccination policy information across 186 countries from Jan 1st, 2020 to Feb 17th, 2022.
+In this project, To minimize other potential factors such as Season and Economics that can effect the analysis, I have limited the choice of countries in the Northern Hemisphere. Then, I choose one to two countries that have the top GDP within each of the region (except "Others"region). In this case, countries should experience similar seasons and economics.
+
+In this project, the primary questions of interest is to find 
+
+- whether there is any differences in death_rates among countries across regions. 
+- whether there is any differences in death_rates among countries across vaccination policy. 
+- whether there is any interaction effect in death_rates among countries across regions and vaccination policy.
+In particular, we will treat countries with dates (a country with a specific date is unique) as an observation.
+
+The original WHO dataset contains 184149 observations and 8 variables. The original Our World in Data dataset contains 142551 observations and 4 variables. However, since the countries name have some minor differences in the two dataset, I then modified the names of the 9 chosen countries. I then join the two datasets together to merge the information into one data frame. After that, I calculate death rate by dividing cumulative deaths over cumulative cases. Finally, after filtering the chosen countries, I removed non-essential data: when there is no vaccination policy and no cumulative cases and no new deaths since they will have no impact on the following analysis process. The new data set has 6649 observations and 9 variables.
+
+The two predictor variable in this project are Region and Vaccination Policy.
+Region contains following levels:
+
+- "AFRO": Africa
+- "AMRO": Americas  
+- "EMRO": Eastern Mediterranean  
+- "EURO": Europe 
+- "SEARO": South-East Asia 
+- "WPRO": Western Pacific
+
+Vaccination Policy is also a categorical variable that contains the strictness of vaccination policy with a country. It is measured from:
+
+- Level 0: No Policy
+- Level 1: Vaccination required with only one group
+- Level 2: Vaccination required with only two groups
+- Level 3: Vaccination required with all vulnerable group
+- Level 4: Vaccination required with vulnerable group + some others
+- Level 5: Vaccination universally required
+</span>
+
+
+```{r}
+library(tidyverse)
+library(gplots)
+library(lme4)
+library(AICcmodavg)
+library(car)
+```
+
+# Background 
+
+<span style='color:black'>
+
+In this project, we will study the dataset from the World Health Organization (WHO) and Our World in Data website. Coronavirus disease 2019 (COVID-19) is a contagious disease caused by severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2). The first known case was identified in Wuhan, China, in December 2019. The disease has then widely spread , whcih has been causing an ongoing worldwide pandemic.
+
+The World Health Organization (WHO) declared COVID-19 as a Public Health Emergency of International Concern on 30 January 2020 and a pandemic on 11 March 2020. As of today (March 3rd, 2022), the COVID-19 pandemic had caused more than 5.97 million deaths globally, making it one of the deadliest disease in history.
+</span>
+
+
+
+
+```{r}
+vaccination_data <- read.csv("C:/Users/charl/Downloads/covid-vaccination-policy (1).csv")
+
+#Unify country name so we can join tables without losing information
+covid_data <- read.csv("C:/Users/charl/Downloads/WHO-COVID-19-global-data.csv")
+covid_data$Country <- as.character(covid_data$Country)
+covid_data$Country <-replace(covid_data$Country, covid_data$Country == "United States of America", "United States")
+covid_data$Country <-replace(covid_data$Country, covid_data$Country == "The United Kingdom", "United Kingdom")
+names(covid_data)[1] = "Date_reported"
+```
+
+```{r}
+#data organization and cleaning
+#1. join two tables together by same country name and date
+#2. filter useful variables
+#3. remove NA in dataset
+
+covid_vaccination <- vaccination_data %>% left_join(covid_data,by = c("Entity" = "Country", "Day" = "Date_reported"))
+covid_vaccination_data <- covid_vaccination[,c(1,3,4,6,8,9,10)]
+covid_vaccination_data <- na.omit(covid_vaccination_data)
+```
+
+```{r}
+#data selection by countries (factor A)
+
+#USA, Canada, China, India, UK, Germany, Nigeria, Egypt, Mexico
+
+#choose countries in northern hemisphere to minimize season and temperature effect as much as possible
+#choose countries across continent to add variability (randomization)
+#choose large countries (by GDP ranking) in each continent to minimize the economic effect
+
+
+```
+
+```{r}
+#note: min new_cases <0, meaning? remove them since not meaningful to have negative new cases
+
+covid <- covid_vaccination_data %>% filter(Entity %in% c("United States","Canada","China","India","United Kingdom","Germany","Nigeria","Egypt","Mexico")) %>% filter(Cumulative_cases >= 0) %>% filter(New_deaths >= 0) %>% filter(!(vaccination_policy == 0 & Cumulative_cases == 0 & New_deaths ==0 )) #remove data in the very begining since there is no vaccination policy and no new cases and no new deaths, meaning the data is not useful as control or treatment group
+
+
+covid <- covid %>% mutate(death_rate = Cumulative_deaths/Cumulative_cases*100)
+covid$Entity <- as.factor(covid$Entity)
+covid$vaccination_policy <- as.factor(covid$vaccination_policy)
+covid$WHO_region <- droplevels.factor(covid$WHO_region,exclude = "Other")
+```
+
+# Descriptive Analysis
+
+
+```{r transformation}
+#descriptive analysis
+
+#transformation
+summary(covid$death_rate) 
+levels(covid$WHO_region)
+#also range is too wide, original histogram is also skewed, consider log transformation
+hist(covid$death_rate)
+hist(sqrt(covid$death_rate+1/2))
+
+covid <- covid %>% mutate(poi_deaths_rate = sqrt(covid$death_rate+1/2)) %>% arrange(Entity,Day)# take poisson transformation mentioned by Zitong
+
+```
+
+<span style='color:black'>
+From the summary statistics and the two histograms above, We can see the median of the death rate is 2.796, but the mean of the death rate is 3.987, which is far apart from the median. This indicates that the response variable is heavily right skewed, which may violate the assumptions of ANOVA, thus we will proceed the data with some transformation.
+
+Since our response variable is "death rate", we will not be able to apply log transformation, because it will result negative infinity for observations that have a death rate of 0, so we will proceed with poisson transformation. After poisson transformation, the histogram suggests that the distribution of the response variable death rate has been more normal.
+</span>
+
+
+```{r pie plot}
+
+n <- nrow(covid)
+lbls <- c("AFRO", "AMRO", "EMRO", "EURO", "SEARO", "WPRO")
+#Africa, America, 
+
+pct <- round(100*table(covid$WHO_region)/n)
+lab <- paste(lbls,pct,sep = "-")
+lab <- paste(lab,'%',sep='')
+
+
+lbls_2 <- c('0','1','2','3','4','5')
+pct_2 <- round(100*table(covid$vaccination_policy)/n)
+lab_2 <- paste(lbls_2,pct_2,sep = "-")
+lab_2 <- paste(lab_2,'%',sep='')
+
+
+
+#distribution of Entity (Country): Balanced
+pie(table(covid$WHO_region),label = lab, main='pie chart for Region')
+
+#distribution of vaccination policy: Unbalanced
+pie(table(covid$vaccination_policy),label = lab_2, main='pie chart for vaccination policy')
+
+#might need to introduce nonparametric test
+```
+<span style='color:black'>
+
+From the The two pie plots above, we can observe that the weights of treatment levels in the dataset are not balanced. Continuing with ANOVA that uses Type I Sum of Squares will possibly not satisfy the assumptions of ANOVA. Therefore, ANOVA with Type II Sum of Squares need to be considered in the later inferential analysis part since we will not consider the interaction effect between Region and Vaccination Policy.
+</span>
+
+```{r}
+boxplot(covid$poi_deaths_rate~covid$WHO_region,main='side-by-side box plot by Region',
+xlab='frame',ylab='death_rate',col=rainbow(9))
+
+boxplot(covid$poi_deaths_rate~covid$vaccination_policy,main='side-by-side box plot by Vaccination Policy',
+xlab='frame',ylab='death_rate',col=rainbow(6))
+```
+<span style='color:black'>
+
+From the box plots above, we can notice there are obvious differences in the mean of death rate (after poisson transformation) among different regions, but the differences in the mean of death rate among different vaccination policy is not too clear.
+</span>
+
+
+# Inferential Analysis
+
+<span style='color:black'>
+
+From the two pie plots above, we can observe that the weights of treatment levels in the dataset are not balanced. Continue with ANOVA that uses Type I Sum of Squares will possibly not satisfy the assumptions of ANOVA. Therefore, ANOVA with Type II Sum of Squares need to be considered in the later inferential analysis part since we will not consider the interaction effect between Region and Vaccination Policy.
+</span>
+
+```{r Main effect plot}
+#main effect plot & interaction effect plot & box plots
+
+# Main effect plot for death_rate
+plotmeans(poi_deaths_rate~WHO_region,data=covid,xlab="Region",ylab="death_rate",
+          main="Main  Effect, Entity",cex.lab=1.5) 
+
+plotmeans(poi_deaths_rate~vaccination_policy,data=covid,xlab="Vaccination Policy",ylab="death_rate", 
+          main="Main  Effect, Vaccination Policy",cex.lab=1.5) 
+
+#very obvious main effect and interaction effect from plots
+```
+
+```{r Interaction plot}
+#Interaction plot
+
+interaction.plot(covid$WHO_region, covid$vaccination_policy, covid$poi_deaths_rate
+                , cex.lab=1.2,ylab="death_rate",xlab='Region + vaccination_policy')
+
+
+#not strong enough interaction + some factor level missing for certain treatment groups, therefore do not considering interaction effect
+```
+<span style='color:black'>
+
+Both the main effect plots of "Region" and "Vaccination Policy" indicate some strong difference in the death rate among observations, so we will include both predictor for the following modeling and analyzation.
+
+The interaction plot does not show strong enough interaction. Besides, some regions have decided to skip a few vaccination policy level. For example, the Europe region has jumped their vaccination policy from level 0 to level 2.
+It results some vaccination policy levels missing for certain regions, and it will cause the interaction model return NA for some coefficients, which hinders the Type III ANOVA analysis later. Therefore, we do not consider interaction effect in this analysis.
+</span>
+
+
+<span style="color:black">
+
+Thus, We define the two-way ANOVA model as follows 
+$Y_{ijk} = \mu_{..} + \alpha_{i} + \beta_{j} + \epsilon_{ijk}$, where the index $\alpha_{i}$ represents the Region, and the index $\beta_{j}$ represents the Vaccination Policy. $\mu_{..}$ is the true average death rate (after poisson transformation) across all treatment groups (Region and Vaccination Policy). $\epsilon_{ijk}$ is the error term.
+</span>
+
+<span style="color:black">
+
+The constraints of the model is as below:
+
+$\sum \alpha_i = \sum \beta_j = 0$
+</span>
+
+<span style="color:black">
+
+For this ANOVA model, the assumptions are as below:
+
+1. Normality: $\epsilon_{ijk}$ follows a normal distribution;
+
+2. Error term $\epsilon_{ijk}$ are independent with each other;
+
+3. No multicollinearity among predictor variables (Region, Vaccination Policy);
+
+4. Constant variance among data.
+</span>
+
+<span style="color:black">
+Then we want to explore
+
+1. If there is any difference in the average new cases of different region;
+   
+  $H_0: \alpha_i = 0\ for\ all\ i$ vs. $H_1: not\ all\ \alpha_i = 0$
+
+2. If there is any difference in the average new cases of different vaccination policy;
+   
+  $H_0: \beta_i = 0\ for\ all\ i$ vs. $H_1: not\ all\ \beta_i = 0$
+   
+at 95% significance level.
+</span>
+
+## Approach I: Type II ANOVA
+```{r}
+two.way = lm(poi_deaths_rate~WHO_region+vaccination_policy, data = covid)
+anova.type2 <- Anova(two.way,
+type='II')
+anova.type2
+```
+
+
+<span style="color:black">
+
+It seems that both Region and Vaccination Policy have statistically significant impact on the death rate of COVID-19. We can see that $F^*$ for Region is 273.37, and $F^*$ for Vaccination Policy is 131.49. Both variables are significant, and Region is the most significant variable in the model since it has greater $F^*$ value. Therefore, we can reject the $H_0$ and conclude that 
+
+- there is significant difference in the average death rate of different region; 
+- and there is significant difference in the average death rate of different vaccination policy.
+
+</span>
+
+
+## Approach II: Tukey-Krama test
+
+<span style="color:black">
+To have more detailed pairwise comparison, I decided to use Tukey-Krama test to construct 95% confidence interval on both of the $H_0$ (null hypothesis).
+</span>
+```{r Tukey}
+anova.fit.twoway = aov(formula = poi_deaths_rate ~ WHO_region + vaccination_policy, 
+    data = covid)
+alpha = 0.05
+Tukey_class <- data.frame(TukeyHSD(anova.fit.twoway,conf.level = 1-alpha)$WHO_region)
+Tukey_class
+Tukey_class[which(Tukey_class[,4] < alpha),] 
+```
+
+```{r}
+alpha = 0.05
+Tukey_class <- data.frame(TukeyHSD(anova.fit.twoway,conf.level = 1-alpha)$vaccination_policy)
+Tukey_class
+Tukey_class[which(Tukey_class[,4] < alpha),] 
+```
+
+<span style="color:black">
+
+From the above Tukey-Krama test and 95% confidence interval on regions, the pairwise confidence interval:
+
+- WPRO-AMRO contain 0, which suggest there are no significant difference of death rate between West Pacific and America;
+- SEARO-AFRO contain 0, which suggest there are no significant difference of death rate between South East Asia and Africa. However, since not all confidence intervals contain 0, we can then reject the null hypothesis and conclude there is significant difference in death rate between some regions.
+
+Similarly, we can observe from the 95% confidence interval on vaccination policy, the five pairwise confidence intervals:1-0,2-0,2-1,3-1,3-2,4-3 contain 0, which suggest there are no significant difference of death rate between these policies pairwisely. But again, since not all confidence intervals contain 0, we can then reject the null hypothesis and conclude there is significant difference in death rate between some vaccination policy.
+</span>
+
+
+<span style='color:black'>
+
+Since we have concluded that there is significant difference between death rate among region and vaccination policy, We then would like to know which combination of region and vaccination policy will have the highest and lowest death rate. 
+</span> 
+
+
+```{r}
+idx=list();
+idx[[1]]=covid$WHO_region;idx[[2]]=covid$vaccination_policy;
+avg_death_rate_matrix = (means.comb=tapply(covid$poi_deaths_rate, INDEX=idx,mean))
+avg_death_rate_matrix
+which(avg_death_rate_matrix == max(avg_death_rate_matrix,na.rm = TRUE), arr.ind=TRUE)
+which(avg_death_rate_matrix == min(avg_death_rate_matrix,na.rm = TRUE), arr.ind=TRUE)
+```
+
+<span style='color:black'>
+
+According to the average death rate matrix, We can discover that there existing high death rate for low level of vaccination policy and death rate gradually decrease as the level of vaccination policy become more stringent in each region.
+The highest average death rate appeared in America region with level 2 vaccination policy, and the lowest average death rate appeared in Africa region with level 1 vaccination policy.
+</span> 
+
+
+# Sensitivity analysis
+
+```{r Sensitivity analysis}
+#Sensitivity analysis
+
+residuals=anova.fit.twoway$residuals;
+hist(residuals)
+qqnorm(residuals);qqline(residuals)
+
+library(nortest)
+ad.test(anova.fit.twoway$residuals)
+```
+```{r}
+plot(residuals~anova.fit.twoway$fitted.values,type='p',pch=16,cex=1.5,xlab="Fitted values",ylab="Residuals")
+```
+```{r}
+durbinWatsonTest(anova.fit.twoway, alternative="two.sided",data=covid)
+
+leveneTest(poi_deaths_rate~WHO_region, data=covid)
+leveneTest(poi_deaths_rate~vaccination_policy, data=covid)
+```
+<span style='color:black'>
+Looking at the histogram of the residuals of our ANOVA model, it is bell-shape, so the residuals are likely normally distributed. But from the residuals vs. fitted we do not observe constant variance. It also does not pass the Anderson-Darling normality test, Durbin Watson independent test, and Levene constant variance test since the p-values are less than 0.05 in all three tests, we reject the null hypothesis, which causes the failure of passing the test. Therefore, ANOVA assumptions are not satisfied.
+</span>
+
+```{r}
+kruskal.test(death_rate ~ WHO_region, data = covid)
+kruskal.test(death_rate ~ vaccination_policy, data = covid)
+```
+
+
+
+
+Then, we will need to introduce non-parametric test like Kruskal-Wallis rank sum test to validate our results in the parametric model. As the p-value is less than the significance level 0.05, we can conclude that there are significant differences between both treatment groups. In other words, there are significant differences in the true median of the death rate among both regions and levels of vaccination policies.
+</span> 
+
+# Discussion
+
+<span style='color:black'> 
+
+The original dataset is achieved from the WHO website and Our World in Data website. The WHO dataset contains the confirmed cases and deaths information of COVID-19 with 184149 observations and 8 variables. The Our World in Data dataset contains the vaccination policy information of COVID-19 with 142551 observations and 4 variables. Since we are only focusing on the northern hemisphere and relatively well developed countries to minize other confounding effects like season and economics, I filtered 9 countries from each continent (except Oceania and Antarctica). After that, I then join the two datasets together to merge the information into one data frame. To create the response variable for this analysis, I calculate death rate by dividing cumulative deaths over cumulative cases. Finally, I removed data whre there is no vaccination policy and no cumulative cases and no new deaths, because they do not impact the following analysis process. The new dataset has 6649 observations and 9 variables.
+
+Then the descriptive analysis is conducted. From the pie plot of regions and vaccination policies, we can observe that the distribution of regions and vaccination policy is not balanced; thus, we will need consider Type II or Type III ANOVA for the following inferential analysis. The boxplot of region indicates that the average death rate across all regions are not the same. Similar conclusion can be drawn from the boxplot of vaccination policy.
+
+I then apply inferential analysis to conduct further study to answer the question of interest. I first observe from the main effect and interaction effect plot and decide to use Type II two way ANOVA without interaction. By looking at the F value, I am able to conclude that both variables are significant, and Region is the most significant variable in the model since it has greater $F^*$ value. Therefore, we can reject the $H_0$ and conclude that there is significant difference in the average death rate of different region; and there is significant difference in the average death rate of different vaccination policy; 
+
+To find more details, I implemented Tukey's range test to calculate 95% pairwise confidence interval among Regions and among vaccination policies. We then conclude the average death rate of some regions is significantly higher than the other, keeping the vaccination policy fixed. we then calculate 95% pairwise confidence interval among the vaccination policy. Similarly, we conclude the average death rate of different levels of vaccination policy are not same across all regions.
+
+we calculated the mean combination of region and vaccination that have the highest and lowest average death rate. We discover that the highest average death rate appeared in America region with level 2 vaccination policy, and the lowest average death rate appeared in Africa region with level 1 vaccination policy.
+
+In conclusion, both region and vaccination policy play significant roles in people's health (regarding to the death rate of COVID-19), and in general, there exists high death rate for low level of vaccination policy and death rate gradually decrease as the level of vaccination policy become more stringent in each region.
+</span>
+
+<span style='color:black'> 
+Then, we conduct the sensitivity analysis to check if our assumptions of the model is plausible. However, by observing from the diagnostic plots and running diagnostic tests, we are not able to conclude that the assumptions of our model are valid.
+Thus, I decide to use nonparametric test to justify my results. I then implemented Kruskal-Wallis rank sum test on both factors, and it suggests that there are significant differences in the true median of the death rate among both regions and levels of vaccination policies, as both p-values are less than the significance level 0.05. This way, our previous results are justified, and we are able to draw statistical significant conclusion from it.
+
+</span>
+
+<span style='color:black'> 
+Based on this study, policy maker should increase the levels of vaccination policy to decrease the average death rate within the region/country.
+
+In the future, the research could also aim for studying other confounding factors that may significantly influence the death rate of COVID-19. Also, Many countries/regions have made the stringent vaccination policy but people decide to not obey, which can generate some deviation from the expected results. To be more strict, the level of vaccination policy is not randomly assigned to countries, but have a developing timeline in an increased pattern; therefore, some time series related analysis could be perform in order to achieve better results.
+
+</span>
+
+
+# Reference
+
+<span style='color:blue'>
+
+1. https://www.scribbr.com/statistics/two-way-anova/
+2. https://www.itl.nist.gov/div898/handbook/prc/section4/prc43.htm
+3. https://rcompanion.org/handbook/G_09.html
+4. https://www.ics.uci.edu/~jutts/110/Lecture18.pdf
+5. https://rpubs.com/WhataBurger/Anovatype3
+6. https://www.statology.org/droplevels-r/
+7. http://www.sthda.com/english/wiki/kruskal-wallis-test-in-r
+8. Anscombe, F. J. (1948). The Transformation of Poisson, Binomial and Negative-Binomial Data. Biometrika, 35(3/4), 246–254.
+   https://doi.org/10.2307/2332343
+</span>
+```{r}
+# Reference
+#https://www.scribbr.com/statistics/two-way-anova/
+#https://www.itl.nist.gov/div898/handbook/prc/section4/prc43.htm
+#https://rcompanion.org/handbook/G_09.html
+#https://www.ics.uci.edu/~jutts/110/Lecture18.pdf
+#https://rpubs.com/WhataBurger/Anovatype3
+#https://www.statology.org/droplevels-r/
+#Anscombe, F. J. (1948). The Transformation of Poisson, Binomial and Negative-Binomial Data. Biometrika, 35(3/4), 246–254.
+#   https://doi.org/10.2307/2332343
+#http://www.sthda.com/english/wiki/kruskal-wallis-test-in-r
+```
+
+
